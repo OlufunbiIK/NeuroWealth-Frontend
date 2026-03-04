@@ -1,15 +1,17 @@
-import 'dotenv/config';
-import { createApp } from './app';
-import { logger } from './utils/logger';
-import { eventBus, EVENTS } from './services/eventBus';
-import { ParsedMessage } from './types/whatsapp';
-import { initSocket } from './services/socket';
+import "dotenv/config";
+import { createApp } from "./app";
+import { logger } from "./utils/logger";
+import { eventBus } from "./services/eventBus";
+import { ParsedMessage } from "./types/whatsapp";
+import { initSocket } from "./services/socket";
+import { handleOnboarding } from "./services/onboarding";
 
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = parseInt(process.env.PORT || "3000", 10);
 
 const app = createApp();
 
-eventBus.onMessage((message: ParsedMessage) => {
+// ── WhatsApp message handler ────────────────────────────────────────────────
+eventBus.onMessage(async (message: ParsedMessage) => {
   logger.info(
     {
       from: message.from,
@@ -17,37 +19,83 @@ eventBus.onMessage((message: ParsedMessage) => {
       text: message.text.body,
       timestamp: message.timestamp,
     },
-    'New WhatsApp message received'
+    "New WhatsApp message received",
   );
-  // TODO: hand off to AI agent / Stellar blockchain handler
+
+  try {
+    const replyText = await handleOnboarding(message);
+    if (!replyText) return;
+
+    // Send reply via Meta Cloud API using your existing /api/message/send route
+    await replyToUser(message.from, message.phone_number_id, replyText);
+  } catch (err) {
+    logger.error({ err, from: message.from }, "Onboarding handler failed");
+  }
 });
 
 eventBus.onParseError(({ error }) => {
-  logger.error({ error: error.message }, 'Failed to process webhook message');
+  logger.error({ error: error.message }, "Failed to process webhook message");
 });
+
+// ─── Helper: send a reply via Meta Cloud API ─────────────────────────────────
+async function replyToUser(
+  to: string,
+  phoneNumberId: string,
+  text: string,
+): Promise<void> {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  if (!token || !phoneNumberId) {
+    // Dev mode — just log the reply so you can see it without real credentials
+    logger.info({ to, text }, "📤 [DEV] Bot reply (no credentials set)");
+    return;
+  }
+
+  const url = `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { body: text },
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    logger.error(
+      { to, status: res.status, err },
+      "Failed to send WhatsApp reply",
+    );
+  } else {
+    logger.info({ to }, "WhatsApp reply sent successfully");
+  }
+}
 
 // ── Start server ───────────────────────────────────────────────────────────
 const server = app.listen(PORT, () => {
   logger.info(`NeuroWealth webhook server listening on port ${PORT}`);
 });
 
+// ── Initialize WebSocket ───────────────────────────────────────────────────
+initSocket(server);
+
 // ── Graceful shutdown ──────────────────────────────────────────────────────
 const shutdown = (signal: string) => {
   logger.info(`${signal} received — shutting down gracefully`);
   server.close(() => {
-    logger.info('Server closed');
+    logger.info("Server closed");
     process.exit(0);
   });
-
-  // Force exit after 10s
   setTimeout(() => {
-    logger.error('Force exit after timeout');
+    logger.error("Force exit after timeout");
     process.exit(1);
   }, 10_000);
 };
 
-// Initialize WebSocket
-initSocket(server);
-
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
