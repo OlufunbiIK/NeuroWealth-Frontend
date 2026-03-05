@@ -61,3 +61,28 @@ export function decryptSecretKey(stored: string): string {
     decipher.final(),
   ]).toString("utf8");
 }
+
+/**
+ * Returns current portfolio share value for a wallet from the Soroban vault.
+ * For local/dev usage, values can be injected with:
+ * MOCK_VAULT_SHARE_VALUES='{"G...":523.4}'
+ */
+export async function getVaultShareValue(
+  walletAddress: string,
+  fallbackValue: number,
+): Promise<number> {
+  try {
+    const raw = process.env.MOCK_VAULT_SHARE_VALUES;
+    if (!raw) return fallbackValue;
+
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    const value = parsed[walletAddress];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  } catch {
+    // Fall back to computed local value if mock env is invalid.
+  }
+
+  return fallbackValue;
+}

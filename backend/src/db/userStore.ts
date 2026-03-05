@@ -27,6 +27,8 @@ export interface User {
   strategy: Strategy | null;
   walletAddress: string | null;
   encryptedPrivateKey: string | null;
+  totalDeposited: number;
+  depositedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -49,6 +51,8 @@ export async function createUser(phone: string): Promise<User> {
     strategy: null,
     walletAddress: null,
     encryptedPrivateKey: null,
+    totalDeposited: 0,
+    depositedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -86,6 +90,22 @@ export async function setUserWallet(
   });
 }
 
+export async function setUserDeposit(
+  phone: string,
+  totalDeposited: number,
+  depositedAt: Date = new Date(),
+): Promise<void> {
+  const user = store.get(phone);
+  if (!user) throw new Error(`User not found: ${phone}`);
+  store.set(phone, {
+    ...user,
+    totalDeposited,
+    depositedAt,
+    step: totalDeposited > 0 ? "active" : user.step,
+    updatedAt: new Date(),
+  });
+}
+
 export async function setUserStep(
   phone: string,
   step: OnboardingStep,
@@ -99,4 +119,5 @@ export async function setUserStep(
 export const _test = {
   clear: () => store.clear(),
   all: () => Array.from(store.values()),
+  seed: (user: User) => store.set(user.phone, user),
 };
